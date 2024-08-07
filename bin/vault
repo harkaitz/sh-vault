@@ -1,0 +1,74 @@
+#!/bin/sh -e
+##:
+#h: Usage: vault {-V | wget|curl ... }
+#h:
+#h: A downloading wrapper to be used with curl(1) or wget(1) that
+#h: stores the downloaded files in a vault for the time the link
+#h: breaks.
+#h:
+#h: Env.variables: VAULT_DIRECTORY, VAULT_SSH_MACHINE, VAULT_SSH_PORT.
+##:
+vault() {
+    local ret FILE= FILE_SSH=
+    
+    ## Vault not configured.
+    if test ! -n "${VAULT_DIRECTORY}" || test ! -n "${VAULT_SSH_MACHINE}"; then
+        echo >&2 "warning: Vault not configured."
+        if "$@"; then return 0; else return 1; fi
+    fi
+    
+    ## Get file to be downloaded.
+    vault_get_FILE "$@"
+    
+    ## Vault not supported.
+    if test ! -n "${FILE}"; then "$@"; return 0; fi
+    
+    ## Download file.
+    if "$@"; then ret=0; else ret=1; fi
+    
+    ## Upload or download.
+    FILE_SSH="${VAULT_DIRECTORY}/$(basename "${FILE}" .tmp)"
+    case "${ret}" in
+        1)
+            echo >&2 "Warning: The download failed, trying the vault ..."
+            scp ${VAULT_SSH_PORT:+ -P "${VAULT_SSH_PORT}" } "${VAULT_SSH_MACHINE}:${FILE_SSH}" "${FILE}" >&2
+            ret=0
+            ;;
+        0)
+            if ! ssh ${VAULT_SSH_PORT:+ -p "${VAULT_SSH_PORT}" } "${VAULT_SSH_MACHINE}" "test -f '${FILE_SSH}'"; then
+                scp ${VAULT_SSH_PORT:+ -P "${VAULT_SSH_PORT}" } "${FILE}" "${VAULT_SSH_MACHINE}:${FILE_SSH}" >&2
+            fi
+            ;;
+    esac
+    
+    ##
+    return "${ret}"
+}
+## -------------------------------------------------------------------
+vault_get_FILE() {
+    local prog
+    case "$1" in
+        wget) prog=wget FILE=;;
+        curl) prog=curl FILE=;;
+        *)    FILE=; return 0;;
+    esac
+    shift
+    while test -n "$1"; do
+        case "${prog}@${1}" in
+            wget@-O) shift; FILE="${1}" ;;
+            curl@-o) shift; FILE="${1}" ;;
+        esac
+        shift
+    done
+}
+## -------------------------------------------------------------------
+if test @"${SCRNAME:-$(basename "$0")}" = @"vault"; then
+    case "${1}" in
+        ''|-h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0";;
+        -*V*)         echo "VAULT_DIRECTORY   : ${VAULT_DIRECTORY}"
+                      echo "VAULT_SSH_MACHINE : ${VAULT_SSH_MACHINE}"
+                      echo "VAULT_SSH_PORT    : ${VAULT_SSH_PORT}"
+                      return 0;;
+        *)            vault "$@"; exit 0;;
+    esac
+fi
