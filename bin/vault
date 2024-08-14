@@ -9,7 +9,7 @@
 #h: Env.variables: VAULT_DIRECTORY, VAULT_SSH_MACHINE, VAULT_SSH_PORT.
 ##:
 vault() {
-    local ret FILE= FILE_SSH=
+    local ret FILE= FILE_SSH= FLAGS=
     
     ## Vault not configured.
     if test ! -n "${VAULT_DIRECTORY}" || test ! -n "${VAULT_SSH_MACHINE}"; then
@@ -19,6 +19,7 @@ vault() {
     
     ## Get file to be downloaded.
     vault_get_FILE "$@"
+    vault_get_FLAGS "$@"
     
     ## Vault not supported.
     if test ! -n "${FILE}"; then "$@"; return 0; fi
@@ -31,12 +32,12 @@ vault() {
     case "${ret}" in
         1)
             echo >&2 "Warning: The download failed, trying the vault ..."
-            scp ${VAULT_SSH_PORT:+ -P "${VAULT_SSH_PORT}" } "${VAULT_SSH_MACHINE}:${FILE_SSH}" "${FILE}" >&2
+            scp ${VAULT_SSH_PORT:+ -P "${VAULT_SSH_PORT}" } ${FLAGS} "${VAULT_SSH_MACHINE}:${FILE_SSH}" "${FILE}" >&2
             ret=0
             ;;
         0)
             if ! ssh ${VAULT_SSH_PORT:+ -p "${VAULT_SSH_PORT}" } "${VAULT_SSH_MACHINE}" "test -f '${FILE_SSH}'"; then
-                scp ${VAULT_SSH_PORT:+ -P "${VAULT_SSH_PORT}" } "${FILE}" "${VAULT_SSH_MACHINE}:${FILE_SSH}" >&2
+                scp ${VAULT_SSH_PORT:+ -P "${VAULT_SSH_PORT}" } ${FLAGS} "${FILE}" "${VAULT_SSH_MACHINE}:${FILE_SSH}" >&2
             fi
             ;;
     esac
@@ -57,6 +58,21 @@ vault_get_FILE() {
         case "${prog}@${1}" in
             wget@-O) shift; FILE="${1}" ;;
             curl@-o) shift; FILE="${1}" ;;
+        esac
+        shift
+    done
+}
+vault_get_FLAGS() {
+    local prog
+    case "$1" in
+        wget) prog=wget FLAGS=;;
+        curl) prog=curl FLAGS=;;
+        *)    FLAGS=; return 0;;
+    esac
+    shift
+    while test -n "$1"; do
+        case "${prog}@${1}" in
+            wget@-q|curl@-s) FLAGS="${FLAGS} -q" ;;
         esac
         shift
     done
